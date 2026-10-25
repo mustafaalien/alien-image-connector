@@ -62,7 +62,8 @@ Your images are saved in: **Pictures › ALIEN Images**
 - A Mac
 - A paid ChatGPT plan (Plus or higher)
 - The Claude desktop app
-- Node.js ([nodejs.org](https://nodejs.org), LTS)
+
+Everything else (Node.js, OpenAI Codex) is installed for you automatically.
 
 Images count toward your ChatGPT plan limits.
 Windows version — coming soon.

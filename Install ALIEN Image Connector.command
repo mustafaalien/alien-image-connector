@@ -5,8 +5,24 @@ DEST="$HOME/Library/Application Support/ALIEN-Image-Connector"
 export PATH="$DEST/codex/node_modules/.bin:$HOME/Library/Application Support/AlienX/codex/node_modules/.bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 echo "👽  Installing ALIEN Image Connector…"
 
+# Node.js: use the one on this Mac, or download a private copy into the connector's own folder (no password needed)
+export PATH="$DEST/node/bin:$PATH"
 NODE="$(command -v node)"
-if [ -z "$NODE" ]; then echo "❌ Node.js not found. Install it from https://nodejs.org (LTS), then double-click this again."; read -p "Press Enter to close"; exit 1; fi
+if [ -z "$NODE" ]; then
+  echo "• Node.js not found — downloading it just for ALIEN (one time, about 50 MB)…"
+  ARCH="$(uname -m)"; [ "$ARCH" = "x86_64" ] && ARCH="x64"
+  BASE="https://nodejs.org/dist/latest-v24.x"
+  LINE="$(curl -fsSL "$BASE/SHASUMS256.txt" | grep "darwin-$ARCH.tar.gz" | head -1)"
+  SUM="${LINE%% *}"; FILE="${LINE##* }"
+  if [ -z "$FILE" ]; then echo "❌ Could not reach nodejs.org. Check your internet and try again."; read -p "Press Enter to close"; exit 1; fi
+  TMP="$(mktemp -d)"
+  curl -fL --progress-bar "$BASE/$FILE" -o "$TMP/$FILE" || { echo "❌ Download failed. Check your internet and try again."; read -p "Press Enter to close"; exit 1; }
+  if [ "$(shasum -a 256 "$TMP/$FILE" | cut -d' ' -f1)" != "$SUM" ]; then echo "❌ The download looks damaged. Please try again."; read -p "Press Enter to close"; exit 1; fi
+  mkdir -p "$DEST/node" && tar -xzf "$TMP/$FILE" -C "$DEST/node" --strip-components 1 && rm -rf "$TMP"
+  NODE="$DEST/node/bin/node"
+  "$NODE" --version >/dev/null 2>&1 || { echo "❌ Node.js could not start."; read -p "Press Enter to close"; exit 1; }
+  echo "✅ Node.js ready ($("$NODE" --version))"
+fi
 
 if ! command -v codex >/dev/null; then
   echo "• Installing OpenAI Codex (the ChatGPT connection)…"; mkdir -p "$DEST/codex" && npm install --prefix "$DEST/codex" --no-audit --no-fund @openai/codex || { echo "❌ Codex install failed. Check your internet and try again."; read -p "Press Enter"; exit 1; }

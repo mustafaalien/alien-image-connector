@@ -15,7 +15,8 @@ const OUT_DIR = process.env.CHATGPT_IMAGE_OUT || (fs.existsSync(path.join(HOME, 
 const CODEX_HOME = process.env.CODEX_HOME || path.join(HOME, '.codex');
 const GEN_DIR = path.join(CODEX_HOME, 'generated_images');
 const WORK = path.join(HOME, 'Library', 'Application Support', 'ALIEN-Image-Connector', 'work');
-const PATHS = [path.join(HOME, 'Library', 'Application Support', 'ALIEN-Image-Connector', 'codex', 'node_modules', '.bin'),
+const PATHS = [path.join(HOME, 'Library', 'Application Support', 'ALIEN-Image-Connector', 'node', 'bin'),
+  path.join(HOME, 'Library', 'Application Support', 'ALIEN-Image-Connector', 'codex', 'node_modules', '.bin'),
   path.join(HOME, 'Library', 'Application Support', 'AlienX', 'codex', 'node_modules', '.bin'),
   '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', process.env.PATH || ''].join(':');
 const ENV = Object.assign({}, process.env, { PATH: PATHS });
