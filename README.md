@@ -7,20 +7,19 @@ No API key. No extra cost. The picture pops up in the chat in about a minute.
 `FREE` · `macOS` · `gpt-image-2` · `Claude Desktop`
 
 <p>
-  <img src="images/marina.jpg" width="24%" alt="Alien with karak tea at Dubai Marina">
-  <img src="images/souk.jpg" width="24%" alt="Alien with a lantern in a Dubai souk">
-  <img src="images/dunes.jpg" width="24%" alt="Alien sandboarding in the Dubai desert">
-  <img src="images/egypt.jpg" width="24%" alt="Alien on a camel at the Pyramids of Giza">
+  <img src="images/souk.jpg" width="32%" alt="Alien with a lantern in a Dubai souk">
+  <img src="images/dunes.jpg" width="32%" alt="Alien sandboarding in the Dubai desert">
+  <img src="images/egypt.jpg" width="32%" alt="Alien on a camel at the Pyramids of Giza">
 </p>
 
 <sub>The same alien in Dubai and Egypt — every image made with this tool, from a chat in Claude.</sub>
 
 <p>
   <img src="images/penthouse.jpg" width="49%" alt="Photoreal Dubai Marina penthouse at sunset">
-  <img src="images/chat.png" width="49%" alt="The image appearing inside the Claude chat">
+  <img src="images/pyramids.jpg" width="49%" alt="Photoreal Pyramids of Giza at sunset with camels">
 </p>
 
-<sub>Photoreal too · and this is how it looks inside Claude.</sub>
+<sub>Photoreal too.</sub>
 
 ---
 
