@@ -15,7 +15,8 @@ const OUT_DIR = process.env.CHATGPT_IMAGE_OUT || (fs.existsSync(path.join(HOME, 
 const CODEX_HOME = process.env.CODEX_HOME || path.join(HOME, '.codex');
 const GEN_DIR = path.join(CODEX_HOME, 'generated_images');
 const WORK = path.join(HOME, 'Library', 'Application Support', 'ALIEN-Image-Connector', 'work');
-const PATHS = [path.join(HOME, 'Library', 'Application Support', 'AlienX', 'codex', 'node_modules', '.bin'),
+const PATHS = [path.join(HOME, 'Library', 'Application Support', 'ALIEN-Image-Connector', 'codex', 'node_modules', '.bin'),
+  path.join(HOME, 'Library', 'Application Support', 'AlienX', 'codex', 'node_modules', '.bin'),
   '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', process.env.PATH || ''].join(':');
 const ENV = Object.assign({}, process.env, { PATH: PATHS });
 const LIMIT_MIN = 10;
@@ -25,6 +26,7 @@ const SIZES = { '1:1': '1024x1024 square', '9:16': '1024x1536 portrait (9:16)', 
 fs.mkdirSync(WORK, { recursive: true });
 
 // ---------- helpers ----------
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 function run(cmd, args, opts) {
   return new Promise((res) => execFile(cmd, args, Object.assign({ env: ENV, timeout: 30000 }, opts || {}), (err, out, errOut) => res({ err, out: String(out || ''), errOut: String(errOut || '') })));
 }
@@ -43,7 +45,7 @@ function stamp() { const d = new Date(), z = (n) => String(n).padStart(2, '0'); 
 
 async function status() {
   const v = await run('codex', ['--version']);
-  if (v.err) return { ok: false, msg: 'Codex is not installed. In Terminal run:  npm install -g @openai/codex   (or open AlienX → Settings → Connect ChatGPT).' };
+  if (v.err) return { ok: false, msg: 'Codex is not installed. Run the ALIEN Image Connector installer again.' };
   const s = await run('codex', ['login', 'status']);
   if (!/logged in/i.test(s.out + s.errOut)) return { ok: false, msg: 'Codex is not signed in to ChatGPT. In Terminal run:  codex login' };
   return { ok: true, msg: 'Codex ' + v.out.trim() + ' · ' + (s.out + s.errOut).trim() + '\n' + usageLine(null, readUsage()) };
@@ -68,6 +70,19 @@ function codexImage(prompt, refs) {
   });
 }
 
+// ---------- lock shared by every Claude chat on this Mac (so images never get mixed up) ----------
+const LOCK = path.join(WORK, '..', 'busy.lock');
+async function getLock() {
+  for (;;) {
+    try { fs.mkdirSync(LOCK); fs.writeFileSync(path.join(LOCK, 'pid'), String(process.pid)); return; }
+    catch (e) {
+      try { const age = Date.now() - fs.statSync(LOCK).mtimeMs; if (age > (LIMIT_MIN + 1) * 60e3) { fs.rmSync(LOCK, { recursive: true, force: true }); continue; } } catch (x) { continue; }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+}
+function releaseLock() { try { fs.rmSync(LOCK, { recursive: true, force: true }); } catch (e) {} }
+
 async function generate(a) {
   const st = await status(); if (!st.ok) throw new Error(st.msg);
   const prompt = String(a.prompt || '').trim(); if (!prompt) throw new Error('prompt is empty');
@@ -79,9 +94,14 @@ async function generate(a) {
     'Size: ' + size + '. Quality: ' + (fast ? 'medium' : 'high') + '. Do not think long, do not plan,' + sizeNote + ' do not run shell commands, do not write code, do not edit files, do not describe the result.' +
     (refs.length ? ' Use the attached image(s) as references.' : '') + '\n\nIMAGE PROMPT:\n' + prompt;
 
-  const u0 = readUsage(), before = listImages(GEN_DIR), t0 = Date.now();
-  const r = await codexImage(full, refs);
-  const after = listImages(GEN_DIR);
+  await getLock(); // one image at a time across ALL Claude chats on this Mac
+  let u0, before, t0, r, after;
+  try {
+    u0 = readUsage(); before = listImages(GEN_DIR); t0 = Date.now();
+    r = await codexImage(full, refs);
+    await sleep(1500); // let the file finish writing
+    after = listImages(GEN_DIR);
+  } finally { releaseLock(); }
   const fresh = [...after.entries()].filter(([p, m]) => !before.has(p) || m > (before.get(p) || 0)).sort((x, y) => y[1] - x[1]).map(([p]) => p);
   if (!fresh.length) {
     const why = r.timedOut ? 'ChatGPT did not finish within ' + LIMIT_MIN + ' min.' : (r.text.trim() || r.errText.trim().split('\n').slice(-4).join(' | ') || 'no image came back');
@@ -123,15 +143,17 @@ function usageLine(before, after) {
 }
 
 // ---------- background jobs (the remote link waits only ~60 s, images take minutes) ----------
-const JOBS = new Map(); let jobN = 0;
+const JOBS = new Map(); let jobN = 0; let QUEUE = Promise.resolve();
 function startJob(a) {
   const id = 'img' + Date.now().toString(36) + (++jobN);
   const j = { id, state: 'running', t0: Date.now(), prompt: String(a.prompt || '').slice(0, 80) };
   JOBS.set(id, j);
-  generate(a).then((r) => { j.state = 'done'; j.r = r; addStat(r.secs); }, (e) => { j.state = 'failed'; j.error = e.message; });
+  // one image at a time: each job waits for the one before it, so results never get mixed up
+  QUEUE = QUEUE.then(() => { j.t0 = Date.now(); j.queued = false; return generate(a); })
+    .then((r) => { j.state = 'done'; j.r = r; addStat(r.secs); }, (e) => { j.state = 'failed'; j.error = e.message; });
+  j.queued = [...JOBS.values()].some((x) => x !== j && x.state === 'running');
   return j;
 }
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function waitJob(id, secs) {
   const j = JOBS.get(id); if (!j) throw new Error('Unknown job ' + id + ' (Claude may have restarted). Check the ChatGPT folder for the image.');
   const until = Date.now() + Math.min(Math.max(secs || 40, 0), 50) * 1000;
@@ -151,6 +173,7 @@ function progressBar(el) {
 }
 function jobResult(id, j) {
   const el = Math.round((Date.now() - j.t0) / 1000);
+  if (j.state === 'running' && j.queued) return { content: [{ type: 'text', text: '⏳ Waiting in line — the image before this one is still being made.\nCall check_image again with job_id "' + id + '".' }] };
   if (j.state === 'running') return { content: [{ type: 'text', text: progressBar(el) + '\nCall check_image again with job_id "' + id + '".' }] };
   if (j.state === 'failed') return { content: [{ type: 'text', text: 'ALIEN Image Connector error: ' + j.error }], isError: true };
   return { content: [{ type: 'image', data: j.r.b64, mimeType: j.r.mime }, { type: 'text', text: 'Made with ChatGPT in ' + j.r.secs + ' s. Saved: ' + j.r.saved.join(', ') + '\n' + j.r.usage + '\n' + CREDIT }] };

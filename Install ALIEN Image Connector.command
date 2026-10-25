@@ -1,15 +1,15 @@
 #!/bin/bash
 # 👽 ALIEN Image Connector by @mustafaalien — installer for Claude Desktop.
 cd "$(dirname "$0")"
-export PATH="$HOME/Library/Application Support/AlienX/codex/node_modules/.bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 DEST="$HOME/Library/Application Support/ALIEN-Image-Connector"
+export PATH="$DEST/codex/node_modules/.bin:$HOME/Library/Application Support/AlienX/codex/node_modules/.bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 echo "👽  Installing ALIEN Image Connector…"
 
 NODE="$(command -v node)"
 if [ -z "$NODE" ]; then echo "❌ Node.js not found. Install it from https://nodejs.org (LTS), then double-click this again."; read -p "Press Enter to close"; exit 1; fi
 
 if ! command -v codex >/dev/null; then
-  echo "• Installing OpenAI Codex (the ChatGPT connection)…"; npm install -g @openai/codex || { echo "❌ Codex install failed."; read -p "Press Enter"; exit 1; }
+  echo "• Installing OpenAI Codex (the ChatGPT connection)…"; mkdir -p "$DEST/codex" && npm install --prefix "$DEST/codex" --no-audit --no-fund @openai/codex || { echo "❌ Codex install failed. Check your internet and try again."; read -p "Press Enter"; exit 1; }
 fi
 if ! codex login status 2>&1 | grep -qi "logged in"; then
   echo "• Sign in with your ChatGPT account in the browser window that opens…"; codex login
