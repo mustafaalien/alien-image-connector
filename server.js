@@ -51,16 +51,18 @@ async function status() {
   return { ok: true, msg: 'Codex ' + v.out.trim() + ' · ' + (s.out + s.errOut).trim() + '\n' + usageLine(null, readUsage()) };
 }
 
-function codexImage(prompt, refs) {
+function codexImage(prompt, refs, model, job) {
   return new Promise((resolve) => {
     const dir = fs.mkdtempSync(path.join(WORK, 'job_'));
     const outF = path.join(dir, 'answer.txt');
     const args = ['exec', '--skip-git-repo-check', '--ignore-user-config',
       '--disable', 'computer_use', '--disable', 'browser_use', '--disable', 'apps',
-      '-c', 'model_reasoning_effort="low"', '-s', 'read-only', '--color', 'never', '-C', dir, '-o', outF];
+      '-c', 'model_reasoning_effort="medium"', '-s', 'read-only', '--color', 'never', '-C', dir, '-o', outF];
+    if (model) args.push('-m', model);
     (refs || []).forEach((f) => args.push('-i', f));
     const env = Object.assign({}, ENV); delete env.OPENAI_API_KEY; // force the ChatGPT plan, never paid API
     const p = spawn('codex', args, { cwd: dir, env });
+    if (job) job.proc = p;
     let errText = '', timedOut = false;
     p.stdout.on('data', () => {}); p.stderr.on('data', (d) => { errText = (errText + d).slice(-4000); });
     const kill = setTimeout(() => { timedOut = true; try { p.kill('SIGTERM'); } catch (e) {} }, LIMIT_MIN * 60e3);
@@ -83,22 +85,20 @@ async function getLock() {
 }
 function releaseLock() { try { fs.rmSync(LOCK, { recursive: true, force: true }); } catch (e) {} }
 
-async function generate(a) {
+async function generate(a, job) {
   const st = await status(); if (!st.ok) throw new Error(st.msg);
   const prompt = String(a.prompt || '').trim(); if (!prompt) throw new Error('prompt is empty');
   const refs = (a.reference_images || []).map((f) => f.replace(/^~/, HOME)).filter((f) => fs.existsSync(f));
   const size = SIZES[a.aspect_ratio || '1:1'] || SIZES['1:1'];
-  const fast = a.speed !== 'best';
-  const sizeNote = fast ? '' : ' Render at the largest size the tool allows, with fine detail.';
-  const full = '$imagegen Call the built-in image generation tool right away, exactly ONCE, with this prompt. ' +
-    'Size: ' + size + '. Quality: ' + (fast ? 'medium' : 'high') + '. Do not think long, do not plan,' + sizeNote + ' do not run shell commands, do not write code, do not edit files, do not describe the result.' +
+  const full = '$imagegen Generate exactly ONE image with the built-in image generation tool. ' +
+    'Size: ' + size + '. Do not run shell commands, do not write code, do not edit files.' +
     (refs.length ? ' Use the attached image(s) as references.' : '') + '\n\nIMAGE PROMPT:\n' + prompt;
 
   await getLock(); // one image at a time across ALL Claude chats on this Mac
   let u0, before, t0, r, after;
   try {
     u0 = readUsage(); before = listImages(GEN_DIR); t0 = Date.now();
-    r = await codexImage(full, refs);
+    r = await codexImage(full, refs, '', job);
     await sleep(1500); // let the file finish writing
     after = listImages(GEN_DIR);
   } finally { releaseLock(); }
@@ -146,10 +146,10 @@ function usageLine(before, after) {
 const JOBS = new Map(); let jobN = 0; let QUEUE = Promise.resolve();
 function startJob(a) {
   const id = 'img' + Date.now().toString(36) + (++jobN);
-  const j = { id, state: 'running', t0: Date.now(), prompt: String(a.prompt || '').slice(0, 80) };
+  const j = { id, state: 'running', t0: Date.now(), prompt: String(a.prompt || '').slice(0, 80), cancelled: false };
   JOBS.set(id, j);
   // one image at a time: each job waits for the one before it, so results never get mixed up
-  QUEUE = QUEUE.then(() => { j.t0 = Date.now(); j.queued = false; return generate(a); })
+  QUEUE = QUEUE.then(() => { if (j.cancelled) throw new Error('Stopped before it started.'); j.t0 = Date.now(); j.queued = false; return generate(a, j); })
     .then((r) => { j.state = 'done'; j.r = r; addStat(r.secs); }, (e) => { j.state = 'failed'; j.error = e.message; });
   j.queued = [...JOBS.values()].some((x) => x !== j && x.state === 'running');
   return j;
@@ -170,6 +170,15 @@ function progressBar(el) {
   const stage = el < 5 ? 'Sending to ChatGPT' : pct < 85 ? 'ChatGPT is drawing' : 'Almost done';
   const bar = '▓'.repeat(Math.round(pct / 10)) + '░'.repeat(10 - Math.round(pct / 10));
   return bar + ' ' + pct + '% · ' + stage + ' · ' + el + ' s (usually ~' + Math.round(avg) + ' s)';
+}
+function stopAll() {
+  let n = 0;
+  for (const j of JOBS.values()) if (j.state === 'running') {
+    j.cancelled = true; n++;
+    if (j.proc) { try { j.proc.kill('SIGTERM'); } catch (e) {} }
+    j.state = 'failed'; j.error = 'Stopped by you.';
+  }
+  return n;
 }
 function jobResult(id, j) {
   const el = Math.round((Date.now() - j.t0) / 1000);
@@ -195,19 +204,21 @@ function latestImage() {
 // ---------- MCP over stdio ----------
 const TOOLS = [
   { name: 'generate_image',
-    description: "ALIEN Image Connector. Use it whenever the user says ALIEN, 'ALIEN Image Connector', or asks for an image 'with ChatGPT'. Start making an image with the user's ChatGPT plan (gpt-image-2 through OpenAI Codex). No API cost. BEFORE calling: if the user has not already said fast or best in this request, ask them ONE short question and wait: 'Fast (about 1 min) or Best quality (about 2-3 min, uses a bit more of your ChatGPT limit)?' — offer it as two clickable choices if you can. Then call with speed set. Returns a job_id at once; then keep calling check_image with that job_id (each call waits up to 25 s) until the image arrives (usually 1–4 minutes). The full image is saved to ~/Pictures/ALIEN Images.",
+    description: "ALIEN Image Connector. Use it whenever the user says ALIEN, 'ALIEN Image Connector', or asks for an image 'with ChatGPT'. Start making an image with the user's ChatGPT plan (gpt-image-2 through OpenAI Codex). No API cost. Returns a job_id at once; then keep calling check_image with that job_id (each call waits up to 25 s) until the image arrives (usually 1–4 minutes). The full image is saved to ~/Pictures/ALIEN Images.",
     inputSchema: { type: 'object', properties: {
       prompt: { type: 'string', description: 'The full image prompt.' },
       filename: { type: 'string', description: 'Short name for the saved file (optional).' },
       aspect_ratio: { type: 'string', enum: Object.keys(SIZES), description: 'Default 1:1.' },
-      speed: { type: 'string', enum: ['fast', 'best'], description: "'fast' (default, medium quality, quicker) or 'best' (high quality, slower — use for finals)." },
       reference_images: { type: 'array', items: { type: 'string' }, description: 'Optional absolute paths of images on the Mac to use as references (characters, products, style).' }
-    }, required: ['prompt', 'speed'] } },
+    }, required: ['prompt'] } },
   { name: 'check_image',
     description: 'Wait up to wait_seconds (default 15) for a ChatGPT image job. Returns the image when ready, otherwise a progress bar with an estimated % — show that line to the user, then call again until done.',
     inputSchema: { type: 'object', properties: { job_id: { type: 'string' }, wait_seconds: { type: 'number', description: '1–50, default 15.' } }, required: ['job_id'] } },
   { name: 'latest_image',
     description: 'Show the newest image in the ChatGPT folder (use if a job_id was lost or the user asks to see the last image).',
+    inputSchema: { type: 'object', properties: {} } },
+  { name: 'stop_images',
+    description: 'Stop every ALIEN image that is being made or waiting in line. Use when the user says stop / cancel / وقف.',
     inputSchema: { type: 'object', properties: {} } },
   { name: 'image_status',
     description: 'Check that Codex is installed and signed in to ChatGPT.',
@@ -235,6 +246,7 @@ async function handle(m) {
         const j = await waitJob(a.job_id, a.wait_seconds || 15);
         return send({ jsonrpc: '2.0', id: m.id, result: jobResult(a.job_id, j) });
       }
+      if (name === 'stop_images') { const n = stopAll(); return send({ jsonrpc: '2.0', id: m.id, result: { content: [{ type: 'text', text: n ? '🛑 Stopped ' + n + ' image(s).' : 'Nothing is being made right now.' }] } }); }
       if (name === 'latest_image') return send({ jsonrpc: '2.0', id: m.id, result: latestImage() });
       return send({ jsonrpc: '2.0', id: m.id, error: { code: -32601, message: 'Unknown tool ' + name } });
     } catch (e) { return send({ jsonrpc: '2.0', id: m.id, result: { content: [{ type: 'text', text: 'ALIEN Image Connector error: ' + e.message }], isError: true } }); }

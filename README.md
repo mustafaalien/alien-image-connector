@@ -44,7 +44,7 @@ So I built a bridge: I ask Claude, ChatGPT draws, and the image lands right in m
 |---|---|
 | **Uses your ChatGPT plan** | Runs through OpenAI Codex, signed in with your account. No API key, ever. |
 | **Shows the image in chat** | About a minute per image, with a progress %. Works from your phone too. |
-| **Fast or Best** | Claude asks before each image: ⚡ Fast (~1 min) or 💎 Best quality (~2–3 min). |
+| **Stop anytime** | Say "stop" and every image being made or waiting is cancelled. |
 | **Keeps your character** | Give a reference image and say only what to change — same face, same scene. |
 | **Tracks your usage** | After every image: how much of your 5-hour and weekly limit it used. |
 
