@@ -51,6 +51,8 @@ So I built a bridge: I ask Claude, ChatGPT draws, and the image lands right in m
 
 ## Install in 3 steps
 
+📄 **Step-by-step guide with pictures (English + العربية):** [ALIEN Install Guide - EN-AR.pdf](ALIEN%20Install%20Guide%20-%20EN-AR.pdf) — it's also inside the folder you download.
+
 1. Download the zip and unzip it.
 2. Open **Terminal**, type `bash ` (with a space), drag in **Install ALIEN Image Connector.command**, press **Enter**. Sign in to ChatGPT if it asks.
 3. Quit Claude (**Cmd+Q**), open it again, and say: *"Make an image with ALIEN of …"*
