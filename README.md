@@ -7,16 +7,16 @@ No API key. No extra cost. The picture pops up in the chat in about a minute.
 `FREE` · `macOS` · `gpt-image-2` · `Claude Desktop`
 
 <p>
-  <img src="images/souk.jpg" width="32%" alt="Alien with a lantern in a Dubai souk">
-  <img src="images/dunes.jpg" width="32%" alt="Alien sandboarding in the Dubai desert">
-  <img src="images/egypt.jpg" width="32%" alt="Alien on a camel at the Pyramids of Giza">
+  <img src="https://github.com/user-attachments/assets/4b5ec7a7-0a53-4e19-9daa-1e0de99d228d" width="32%" alt="Alien with a lantern in a Dubai souk">
+  <img src="https://github.com/user-attachments/assets/d6c1fd3f-f8bc-4e9c-8e46-248048b7f39c" width="32%" alt="Alien sandboarding in the Dubai desert">
+  <img src="https://github.com/user-attachments/assets/7ae42227-40ce-4597-8c53-fc02a61a8a8a" width="32%" alt="Alien on a camel at the Pyramids of Giza">
 </p>
 
 <sub>The same alien in Dubai and Egypt — every image made with this tool, from a chat in Claude.</sub>
 
 <p>
-  <img src="images/penthouse.jpg" width="49%" alt="Photoreal Dubai Marina penthouse at sunset">
-  <img src="images/pyramids.jpg" width="49%" alt="Photoreal Pyramids of Giza at sunset with camels">
+  <img src="https://github.com/user-attachments/assets/1df1b5c5-44b2-4247-8c39-4dceb150e09d" width="49%" alt="Photoreal Dubai Marina penthouse at sunset">
+  <img src="https://github.com/user-attachments/assets/c9b87b75-cb7e-43a6-9cdf-05ca60ed8587" width="49%" alt="Photoreal Pyramids of Giza at sunset with camels">
 </p>
 
 <sub>Photoreal too.</sub>
