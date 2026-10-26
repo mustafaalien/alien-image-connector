@@ -55,6 +55,7 @@ So I built a bridge: I ask Claude, ChatGPT draws, and the image lands right in m
 
 1. Download the zip and unzip it.
 2. Open **Terminal**, type `bash ` (with a space), drag in **Install ALIEN Image Connector.command**, press **Enter**. Sign in to ChatGPT if it asks.
+   *See "Permission denied"? You forgot `bash` — type `bash ` first, then drag the file in again.*
 3. Quit Claude (**Cmd+Q**), open it again, and say: *"Make an image with ALIEN of …"*
 
 Your images are saved in: **Pictures › ALIEN Images**
