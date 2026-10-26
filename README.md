@@ -67,8 +67,9 @@ Your images are saved in: **Pictures › ALIEN Images**
 
 Everything else (Node.js, OpenAI Codex) is installed for you automatically.
 
+🪟 **On Windows?** Try the **BETA** → [alien-image-connector-windows](https://github.com/mustafaalien/alien-image-connector-windows)
+
 Images count toward your ChatGPT plan limits.
-Windows version — coming soon.
 
 ---
 
