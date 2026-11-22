@@ -1,0 +1,415 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Map location reel template (looks: pop / navy / coral / night)</title>
+<style>html,body{margin:0;background:#07090c}canvas{display:block;height:100vh;margin:0 auto}</style>
+<script src="assets.js"></script><script src="voice.js"></script>
+</head><body><canvas id="cv" width="1080" height="1920"></canvas>
+<script>
+/* ============ DATA: change the film here ============ */
+const FPS = 30, DUR = 20, W = 1080, H = 1920, INK = '#0A0D10';
+const PROJECT = { name: 'Sample Residence', sub: 'Palm Jumeirah · Dubai', dev: 'SAMPLE DEVELOPER', tag: 'Satellite view · sample project', x: 0, y: 0 };
+const AGENT = { name: 'Agent Name', role: 'Property Consultant', phone: '+971 50 000 0000', initials: 'AN' };
+const LANDMARKS = [
+  { key: 'Atlantis The Palm', label: 'Atlantis The Palm', t0: 6.3, side: 'r' },
+  { key: 'Dubai Marina Mall', label: 'Dubai Marina', t0: 8.3, side: 'r', dy: -70 },
+  { key: 'Burj Al Arab', label: 'Burj Al Arab', t0: 10.3, side: 'l' },
+];
+// story beats (text is the same in every look)
+const BEATS = [
+  { t: 0.0,  kick: 'DUBAI PROPERTY', head: 'All eyes are on *the Palm.*',  cap: "Dubai's most famous address." },
+  { t: 3.3,  kick: 'THE LOCATION',   head: 'Right at the *heart* of it.',  cap: 'Your new home sits right here.' },
+  { t: 6.0,  kick: 'CONNECTIVITY',   head: 'Minutes from *everything.*',   cap: 'Atlantis. The Marina. Burj Al Arab. All a short drive away.' },
+  { t: 12.6, kick: 'THE PROJECT',    head: 'Meet *Sample Residence.*',     cap: 'Beachfront living on the trunk of the Palm.' },
+  { t: 16.6, kick: 'PRIVATE VIEWINGS', head: 'Your key to *the Palm.*',    cap: 'Call today for a private viewing.' },
+  { t: 20.0 },
+];
+// camera keys: [time, x m east, y m south, metres per pixel, heading deg, ease of the move that STARTS here]
+// ease: 'soft' gentle glide, 'fly' fast swoop that settles, 'lin' constant drift. Two keys at the same time = hard cut.
+const LOOKS = {
+  pop: {   // v1: top-down, centred type, lime pills
+    label: 'LIME POP', accent: '#C8FF3E', tilt: 0, focusY: 900, filter: 'none', tint: 'rgba(5,10,16,0.10)', bg: '4,7,10',
+    layout: 'center', headFont: '"Sora"', cap: 'pill', agent: 'bar', pill: 'thumb',
+    cam: [[0, 900, -200, 12.6, 0, 'soft'], [3.3, 1500, 300, 11.5, 0, 'soft'], [6.0, 1100, -300, 10, 0, 'soft'], [12.6, 1000, -250, 9.4, 0, 'fly'], [16.6, 0, 60, 1.25, 0, 'soft'], [20, 0, 40, 1.05, 0]],
+  },
+  navy: {  // reference look 1: tilted 3D map, navy sea, thin + bold headline, camera holds then flies
+    label: 'NAVY GLIDE', accent: '#C6F23C', tilt: 50, focusY: 1080, filter: 'saturate(0.8) brightness(0.78) contrast(1.15)', tint: 'rgba(4,10,44,0.26)', bg: '3,6,22',
+    layout: 'left', lightHead: true, headFont: '"Inter"', cap: 'plain', agent: 'none', pill: 'badge', photoCard: true,
+    cam: [[0, -900, 300, 9.2, -10, 'lin'], [3.0, -600, 300, 8.8, -7, 'fly'], [4.3, 0, 250, 4.3, 9, 'lin'], [6.0, 0, 250, 4.1, 12, 'fly'], [7.3, 900, 1500, 9.6, 2, 'lin'], [12.4, 1000, 1400, 9.2, -4, 'fly'], [14.3, 0, -150, 1.7, 14, 'lin'], [20, 0, -130, 1.35, 22]],
+  },
+  coral: { // reference look 2: tilted, warm sand map, coral accent, one long slow push-in
+    label: 'CORAL SAND', accent: '#EE5E3F', tilt: 54, focusY: 1060, filter: 'grayscale(0.72) sepia(0.5) brightness(0.84) contrast(1.12)', tint: 'rgba(24,14,8,0.16)', bg: '10,9,9',
+    layout: 'left', headFont: '"Inter"', cap: 'chips', agent: 'slim', pill: 'badge', underline: true, plot: true,
+    cam: [[0, 2300, 3300, 12.5, -20, 'lin'], [6.0, 1200, 1900, 10.4, -15, 'lin'], [12.6, 800, 1300, 9.0, -10, 'soft'], [16.6, 0, 160, 1.9, -4, 'lin'], [20, 0, 120, 1.5, 0]],
+  },
+  night: { // reference look 3: top-down dark grey map, lime routes, agent chip, hard cuts with a lime wipe
+    label: 'NIGHT GRID', accent: '#B9F53C', tilt: 0, focusY: 960, filter: 'grayscale(1) brightness(0.46) contrast(1.45)', tint: 'rgba(0,0,0,0.12)', bg: '6,7,7',
+    layout: 'left', headFont: '"Inter"', cap: 'spaced', agent: 'chip', pill: 'badge', photoCard: true, wipe: true, dash: true,
+    cam: [[0, 700, -200, 12.2, 0, 'lin'], [3.3, 800, -200, 11.7, 0], [3.3, 0, -220, 3.3, 0, 'lin'], [6.0, 0, -220, 3.1, 0], [6.0, 1100, -300, 10.2, 0, 'lin'], [12.6, 1150, -300, 9.7, 0], [12.6, 0, -190, 1.75, 0, 'lin'], [20, 0, -150, 1.35, 0]],
+  },
+};
+/* ==================================================== */
+
+const cv = document.getElementById('cv'), g = cv.getContext('2d');
+const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+const smooth = x => { x = clamp(x); return x * x * x * (x * (x * 6 - 15) + 10); };
+const ss = (a, b, x) => smooth((x - a) / (b - a));
+const outBack = x => { x = clamp(x); const c = 1.5; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); };
+const outCubic = x => 1 - Math.pow(1 - clamp(x), 3);
+const lerp = (a, b, t) => a + (b - a) * t;
+function rng(seed) { let s = seed >>> 0; return () => { s = (s + 0x6D2B79F5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+
+const A = window.ASSETS, levels = [], thumbs = {};
+let projThumb = null, projPhoto = null;
+let LK = LOOKS.pop, ACCENT = LK.accent, FY = LK.focusY, F_HEAD = LK.headFont; const F_BODY = '"Inter"';
+const PF = 2600, GQ = 1.15, DMAX = 3000; let FOG0 = 0, FOG1 = 0; let TS = 0, TC = 1, G = null, gx = null, GU = 0, GV = 0;
+let CAM = { x: 0, y: 0, mpp: 10, hd: 0 };
+
+window.setLook = name => {
+  LK = LOOKS[name]; ACCENT = LK.accent; FY = LK.focusY; F_HEAD = LK.headFont; window.LOOK = name;
+  if (LK.tilt) {                       // ground canvas big enough for the tilted view
+    TS = Math.sin(LK.tilt * Math.PI / 180); TC = Math.cos(LK.tilt * Math.PI / 180);
+    const dT = TC * PF - FY * TS, dyT = dT > 0 ? Math.max(-FY * PF / dT, -DMAX) : -DMAX, sT = PF / (PF - dyT * TS), dyB = (H - FY) * PF / (TC * PF + (H - FY) * TS);
+    G = document.createElement('canvas'); G.width = Math.ceil(W / sT * GQ) + 8; G.height = Math.ceil((-dyT + dyB) * GQ) + 8;
+    GU = G.width / 2; GV = Math.ceil(-dyT * GQ) + 4; gx = G.getContext('2d');
+    const fy = d => FY - d * TC * PF / (PF + d * TS); FOG0 = fy(DMAX); FOG1 = fy(DMAX * 0.3);   // distance haze toward the horizon
+  } else { G = null; }
+};
+
+window.ready = (async () => {
+  const ff = [];
+  for (const [fam, wt, src] of A.fonts) { const f = new FontFace(fam, `url(${src})`, { weight: wt }); ff.push(f.load().then(x => document.fonts.add(x))); }
+  await Promise.all(ff);
+  for (let i = 0; i < A.levels.length; i++) {
+    const L = A.levels[i]; const im = new Image(); im.src = L.src; await im.decode();
+    // feathered copy: soft edges so a finer level can sit on a coarser one without a visible border
+    const fe = document.createElement('canvas'); fe.width = L.w; fe.height = L.h; const q = fe.getContext('2d'); q.drawImage(im, 0, 0);
+    q.globalCompositeOperation = 'destination-out'; const fw = 320;
+    for (const [x0, y0, x1, y1, rx, ry, rw, rh] of [[0, 0, fw, 0, 0, 0, fw, L.h], [L.w, 0, L.w - fw, 0, L.w - fw, 0, fw, L.h], [0, 0, 0, fw, 0, 0, L.w, fw], [0, L.h, 0, L.h - fw, 0, L.h - fw, L.w, fw]]) {
+      const gr = q.createLinearGradient(x0, y0, x1, y1); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); q.fillStyle = gr; q.fillRect(rx, ry, rw, rh);
+    }
+    levels.push({ ...L, im, fe });
+  }
+  for (const k in A.routes) {
+    const r = A.routes[k]; r.cum = [0];
+    for (let i = 1; i < r.pts.length; i++) r.cum.push(r.cum[i - 1] + Math.hypot(r.pts[i][0] - r.pts[i - 1][0], r.pts[i][1] - r.pts[i - 1][1]));
+    r.end = r.pts[r.pts.length - 1]; thumbs[k] = cropWorld(r.end[0], r.end[1], 520, 520, 160, 160);
+  }
+  projThumb = cropWorld(PROJECT.x, PROJECT.y, 330, 330, 300, 300);
+  projPhoto = cropWorld(PROJECT.x, PROJECT.y, 760, 475, 640, 400);
+  window.setLook(new URLSearchParams(location.search).get('look') || 'pop');
+  window.renderTick(0);
+  return true;
+})();
+
+// crop of the REAL satellite image around a world point (metres), from the finest level that contains it
+function cropWorld(x, y, wM, hM, pw, ph) {
+  const c = document.createElement('canvas'); c.width = pw; c.height = ph; const q = c.getContext('2d');
+  let best = levels[0];
+  for (const L of levels) { const hx = wM / 2 / L.mpp, hy = hM / 2 / L.mpp, ux = L.cx + x / L.mpp, uy = L.cy + y / L.mpp; if (ux - hx >= 0 && uy - hy >= 0 && ux + hx <= L.w && uy + hy <= L.h) best = L; }
+  q.imageSmoothingQuality = 'high';
+  q.drawImage(best.im, best.cx + x / best.mpp - wM / 2 / best.mpp, best.cy + y / best.mpp - hM / 2 / best.mpp, wM / best.mpp, hM / best.mpp, 0, 0, pw, ph);
+  return c;
+}
+
+function camAt(t) {
+  const K = LK.cam; let i = 0; while (i < K.length - 2 && t >= K[i + 1][0]) i++;
+  const a = K[i], b = K[i + 1]; const u = clamp((t - a[0]) / Math.max(1e-6, b[0] - a[0]));
+  const e = a[5] === 'lin' ? u : a[5] === 'fly' ? smooth(u) : 0.35 * u + 0.65 * smooth(u);
+  return { x: lerp(a[1], b[1], e), y: lerp(a[2], b[2], e), mpp: Math.exp(lerp(Math.log(a[3]), Math.log(b[3]), e)), hd: lerp(a[4], b[4], e) * Math.PI / 180 };
+}
+// world metres -> screen pixels (same projection the map uses)
+function P(x, y) {
+  const dx = (x - CAM.x) / CAM.mpp, dy = (y - CAM.y) / CAM.mpp, c = Math.cos(CAM.hd), s = Math.sin(CAM.hd);
+  const rx = dx * c - dy * s, ry = dx * s + dy * c;
+  if (!LK.tilt) return [W / 2 + rx, FY + ry, 1];
+  const k = PF / (PF - ry * TS); return [W / 2 + rx * k, FY + ry * TC * k, k];
+}
+
+function drawGround(q, cw, ch, fx, fy, sc) {
+  q.setTransform(1, 0, 0, 1, 0, 0); q.filter = 'none'; q.globalAlpha = 1; q.fillStyle = '#0b1a22'; q.fillRect(0, 0, cw, ch);
+  q.imageSmoothingEnabled = true; q.imageSmoothingQuality = 'high'; q.filter = LK.filter;
+  const gm = CAM.mpp / sc, R = Math.max(Math.hypot(fx, fy), Math.hypot(cw - fx, fy), Math.hypot(fx, ch - fy), Math.hypot(cw - fx, ch - fy)) * gm;
+  let start = 0;
+  levels.forEach((L, i) => { const m = Math.min(L.cx * L.mpp + CAM.x, L.cy * L.mpp + CAM.y, (L.w - L.cx) * L.mpp - CAM.x, (L.h - L.cy) * L.mpp - CAM.y); if (m >= R) start = i; });
+  q.translate(fx, fy); q.rotate(CAM.hd); q.scale(1 / gm, 1 / gm); q.translate(-CAM.x, -CAM.y);
+  for (let i = start; i < levels.length; i++) {
+    const L = levels[i]; if (i > start && L.mpp / gm < 0.34) break;
+    q.drawImage(i === start ? L.im : L.fe, -L.cx * L.mpp, -L.cy * L.mpp, L.w * L.mpp, L.h * L.mpp);
+  }
+  q.setTransform(1, 0, 0, 1, 0, 0); q.filter = 'none';
+}
+
+function drawMap() {
+  if (!LK.tilt) drawGround(g, W, H, W / 2, FY, 1);
+  else {
+    drawGround(gx, G.width, G.height, GU, GV, GQ);
+    g.fillStyle = `rgb(${LK.bg})`; g.fillRect(0, 0, W, H);
+    for (let y = 0; y < H; y++) {       // perspective: one screen row at a time
+      const Y = y + 0.5 - FY, den = TC * PF + Y * TS; if (den <= 0) continue; const dy = Y * PF / den; if (-dy > DMAX) continue; const k = PF / (PF - dy * TS), dv = GQ * PF * PF * TC / (den * den), sw = W / k * GQ;
+      g.drawImage(G, GU - sw / 2, GV + dy * GQ - dv / 2, sw, Math.max(dv, 1), 0, y, W, 1);
+    }
+  }
+  if (LK.tilt) { const fg = g.createLinearGradient(0, FOG0, 0, FOG1); fg.addColorStop(0, `rgba(${LK.bg},1)`); fg.addColorStop(1, `rgba(${LK.bg},0)`); g.fillStyle = fg; g.fillRect(0, FOG0 - 2, W, FOG1 - FOG0 + 2); }
+  g.fillStyle = LK.tint; g.fillRect(0, 0, W, H);
+  const B = LK.bg, left = LK.layout === 'left';
+  let gr = g.createLinearGradient(0, 0, 0, left ? 900 : 760); gr.addColorStop(0, `rgba(${B},0.95)`); gr.addColorStop(left ? 0.55 : 0.5, `rgba(${B},${left ? 0.62 : 0.5})`); gr.addColorStop(1, `rgba(${B},0)`);
+  g.fillStyle = gr; g.fillRect(0, 0, W, 900);
+  gr = g.createLinearGradient(0, 1120, 0, H); gr.addColorStop(0, `rgba(${B},0)`); gr.addColorStop(0.45, `rgba(${B},0.72)`); gr.addColorStop(1, `rgba(${B},0.97)`);
+  g.fillStyle = gr; g.fillRect(0, 1120, W, H - 1120);
+}
+
+function rr(x, y, w, h, r) { g.beginPath(); g.roundRect(x, y, w, h, r); }
+const beatAt = t => { let i = 0; while (i < BEATS.length - 2 && t >= BEATS[i + 1].t) i++; return i; };
+
+function drawRoutes(t) {
+  for (const lm of LANDMARKS) {
+    const r = A.routes[lm.key]; const p = outCubic((t - lm.t0) / 1.5), fade = 1 - ss(12.2, 12.58, t);
+    if (p <= 0 || fade <= 0) continue;
+    const upto = p * r.cum[r.cum.length - 1];
+    g.save(); g.globalAlpha = fade; g.lineJoin = g.lineCap = 'round'; g.beginPath();
+    let h = P(r.pts[0][0], r.pts[0][1]); g.moveTo(h[0], h[1]);
+    for (let i = 1; i < r.pts.length; i++) {
+      if (r.cum[i] <= upto) { h = P(r.pts[i][0], r.pts[i][1]); g.lineTo(h[0], h[1]); }
+      else { const u = (upto - r.cum[i - 1]) / (r.cum[i] - r.cum[i - 1]); h = P(lerp(r.pts[i - 1][0], r.pts[i][0], u), lerp(r.pts[i - 1][1], r.pts[i][1], u)); g.lineTo(h[0], h[1]); break; }
+    }
+    const thin = LK.pill === 'badge';
+    g.strokeStyle = 'rgba(8,12,6,0.55)'; g.lineWidth = thin ? 9 : 13; g.stroke();
+    g.shadowColor = ACCENT; g.shadowBlur = thin ? 12 : 18; g.strokeStyle = ACCENT; g.lineWidth = thin ? 4.5 : 6.5; g.stroke(); g.shadowBlur = 0;
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(h[0], h[1], thin ? 7 : 9, 0, 7); g.fill();
+    g.restore();
+    const q = outBack((t - lm.t0 - 1.15) / 0.5);
+    if (q > 0) {
+      const [ex, ey] = P(r.end[0], r.end[1]);
+      g.save(); g.globalAlpha = fade * clamp(q * 1.4);
+      g.fillStyle = ACCENT; g.beginPath(); g.arc(ex, ey, thin ? 10 : 13, 0, 7); g.fill(); g.strokeStyle = INK; g.lineWidth = 4; g.stroke();
+      const mins = Math.round(r.min); g.textBaseline = 'middle'; g.textAlign = 'left';
+      if (!thin) {                      // pill with a satellite thumbnail
+        const th = 84, mt = mins + ' min'; g.font = `700 34px ${F_HEAD}`; const w1 = g.measureText(mt).width; g.font = `500 30px ${F_BODY}`; const w2 = g.measureText(lm.label).width;
+        const pw = th + 18 + w1 + 22 + w2 + 34, ph = th + 12; let px = lm.side === 'r' ? ex + 26 : ex - 26 - pw; px = clamp(px, 30, W - 30 - pw); const py = ey - ph / 2 - 62 + (lm.dy || 0);
+        g.translate(px + pw / 2, py + ph / 2); g.scale(lerp(0.8, 1, q), lerp(0.8, 1, q)); g.translate(-pw / 2, -ph / 2);
+        g.shadowColor = 'rgba(0,0,0,0.55)'; g.shadowBlur = 26; g.shadowOffsetY = 8; g.fillStyle = 'rgba(10,13,16,0.90)'; rr(0, 0, pw, ph, ph / 2); g.fill(); g.shadowColor = 'transparent';
+        g.strokeStyle = 'rgba(255,255,255,0.14)'; g.lineWidth = 2; rr(0, 0, pw, ph, ph / 2); g.stroke();
+        g.save(); g.beginPath(); g.arc(6 + th / 2, ph / 2, th / 2, 0, 7); g.clip(); g.drawImage(thumbs[lm.key], 6, 6, th, th); g.restore();
+        g.strokeStyle = ACCENT; g.lineWidth = 3; g.beginPath(); g.arc(6 + th / 2, ph / 2, th / 2, 0, 7); g.stroke();
+        g.fillStyle = ACCENT; g.font = `700 34px ${F_HEAD}`; g.fillText(mt, th + 22, ph / 2 + 2);
+        g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillRect(th + 22 + w1 + 10, ph / 2 - 14, 2, 28);
+        g.fillStyle = '#fff'; g.font = `500 30px ${F_BODY}`; g.fillText(lm.label, th + 22 + w1 + 22, ph / 2 + 2);
+      } else {                          // dark pill with a coloured minutes badge
+        g.font = `800 30px ${F_BODY}`; const w1 = g.measureText(String(mins)).width; g.font = `800 17px ${F_BODY}`; const wm = g.measureText('MIN').width; g.font = `600 29px ${F_BODY}`; const w2 = g.measureText(lm.label).width;
+        const bw = w1 + wm + 34, ph = 64, pw = 8 + bw + 16 + w2 + 26; let px = lm.side === 'r' ? ex + 22 : ex - 22 - pw; px = clamp(px, 30, W - 30 - pw); const py = ey - ph / 2 - 46 + (lm.dy ? lm.dy / 2 : 0);
+        g.translate(px + pw / 2, py + ph / 2); g.scale(lerp(0.8, 1, q), lerp(0.8, 1, q)); g.translate(-pw / 2, -ph / 2);
+        g.shadowColor = 'rgba(0,0,0,0.6)'; g.shadowBlur = 22; g.shadowOffsetY = 6; g.fillStyle = 'rgba(12,14,16,0.94)'; rr(0, 0, pw, ph, ph / 2); g.fill(); g.shadowColor = 'transparent';
+        g.strokeStyle = 'rgba(255,255,255,0.16)'; g.lineWidth = 2; rr(0, 0, pw, ph, ph / 2); g.stroke();
+        g.fillStyle = ACCENT; rr(8, 8, bw, ph - 16, (ph - 16) / 2); g.fill();
+        g.fillStyle = INK; g.font = `800 30px ${F_BODY}`; g.fillText(String(mins), 8 + 13, ph / 2 + 2); g.font = `800 17px ${F_BODY}`; g.fillText('MIN', 8 + 13 + w1 + 6, ph / 2 + 5);
+        g.fillStyle = '#fff'; g.font = `600 29px ${F_BODY}`; g.fillText(lm.label, 8 + bw + 16, ph / 2 + 2);
+      }
+      g.restore();
+    }
+  }
+}
+
+function drawDot(t) {
+  const a = outBack((t - 3.6) / 0.6); if (a <= 0) return;
+  const [x, y] = P(PROJECT.x, PROJECT.y);
+  g.save();
+  if (LK.plot) {                        // coral look: outlined plot that fills in at the end
+    const s = 260, c = [[-s, -s], [s, -s], [s, s], [-s, s]].map(([dx, dy]) => P(PROJECT.x + dx, PROJECT.y + dy));
+    g.globalAlpha = clamp(a); g.beginPath(); c.forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])); g.closePath();
+    g.fillStyle = `rgba(238,94,63,${0.42 * ss(13.5, 15.5, t)})`; g.fill(); g.strokeStyle = t > 13.5 ? ACCENT : 'rgba(12,10,10,0.9)'; g.lineWidth = 4; g.stroke();
+  }
+  const rings = LK.dash ? 2 : 3;
+  for (let i = 0; i < rings; i++) { const ph = ((t * 0.8 + i / rings) % 1); g.globalAlpha = (1 - ph) * 0.55 * clamp(a); g.strokeStyle = ACCENT; g.lineWidth = 4; g.beginPath(); g.arc(x, y, 20 + ph * 95, 0, 7); g.stroke(); }
+  g.globalAlpha = clamp(a);
+  if (LK.dash) { g.strokeStyle = ACCENT; g.lineWidth = 3; g.globalAlpha = 0.7 * clamp(a); for (const r of [34, 56]) { g.beginPath(); g.arc(x, y, r, 0, 7); g.stroke(); } g.globalAlpha = clamp(a); }
+  g.fillStyle = ACCENT + '40'; g.beginPath(); g.arc(x, y, 34 * a, 0, 7); g.fill();
+  g.shadowColor = ACCENT; g.shadowBlur = 30; g.fillStyle = ACCENT; g.beginPath(); g.arc(x, y, 17 * a, 0, 7); g.fill(); g.shadowBlur = 0;
+  g.strokeStyle = INK; g.lineWidth = 4; g.stroke();
+  if (LK.layout === 'center') {         // pop look: small name tag before the full card
+    const tg = ss(4.1, 4.6, t) * (1 - ss(12.4, 13.0, t));
+    if (tg > 0) { g.globalAlpha = tg; g.font = `700 30px ${F_HEAD}`; const w = g.measureText(PROJECT.name).width + 44; g.fillStyle = ACCENT; rr(x - w / 2, y + 44 + (1 - tg) * 14, w, 54, 27); g.fill(); g.fillStyle = INK; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(PROJECT.name, x, y + 72 + (1 - tg) * 14); }
+  }
+  g.restore();
+}
+
+function drawCard(t) {
+  const [x, y] = P(PROJECT.x, PROJECT.y);
+  if (LK.photoCard) {                   // picture card above the dot (navy / night)
+    const a = Math.max(ss(4.3, 4.8, t) * (1 - ss(5.75, 5.98, t)), outCubic((t - 14.6) / 0.6)); if (a <= 0) return;
+    const cw = 400, ih = 250, lh = LK.dash ? 104 : 62, ch = ih + lh, cx = clamp(x - cw / 2, 40, W - 40 - cw), cy = y - 90 - ch + (1 - a) * 24;
+    g.save(); g.globalAlpha = a; g.strokeStyle = ACCENT; g.lineWidth = 2.5; g.beginPath(); g.moveTo(x, y - 22); g.lineTo(x, cy + ch); g.stroke();
+    g.shadowColor = 'rgba(0,0,0,0.6)'; g.shadowBlur = 36; g.shadowOffsetY = 10; g.fillStyle = 'rgba(10,12,16,0.96)'; rr(cx, cy, cw, ch, 18); g.fill(); g.shadowColor = 'transparent';
+    g.save(); rr(cx, cy, cw, ch, 18); g.clip(); g.drawImage(projPhoto, cx, cy, cw, ih); g.restore();
+    g.strokeStyle = LK.dash ? ACCENT : 'rgba(255,255,255,0.22)'; g.lineWidth = 2.5; rr(cx, cy, cw, ch, 18); g.stroke();
+    g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+    if (LK.dash) { g.fillStyle = '#fff'; g.font = `800 34px ${F_BODY}`; g.letterSpacing = '5px'; g.fillText(PROJECT.name.toUpperCase(), cx + 22, cy + ih + 46); g.fillStyle = ACCENT; g.font = `700 19px ${F_BODY}`; g.letterSpacing = '3px'; g.fillText(PROJECT.sub.toUpperCase(), cx + 22, cy + ih + 80); g.letterSpacing = '0px'; }
+    else { g.fillStyle = ACCENT; g.font = `700 32px ${F_BODY}`; g.fillText(PROJECT.name, cx + 20, cy + ih + 42); }
+    g.fillStyle = 'rgba(255,255,255,0.75)'; g.font = `500 16px ${F_BODY}`; g.textAlign = 'right'; g.fillText('Satellite view · sample', cx + cw - 12, cy + ih - 10);
+    g.restore(); return;
+  }
+  const a = outBack((t - 15.4) / 0.7); if (a <= 0) return;
+  const cw = 620, ch = 196, cx = W / 2 - cw / 2, cy = y + 150;
+  g.save(); g.globalAlpha = clamp(a * 1.3);
+  g.strokeStyle = ACCENT; g.lineWidth = 3; g.beginPath(); g.moveTo(x, y + 20); g.lineTo(x, cy); g.stroke();
+  g.translate(W / 2, cy + ch / 2); g.scale(lerp(0.85, 1, a), lerp(0.85, 1, a)); g.translate(-W / 2, -(cy + ch / 2));
+  g.shadowColor = 'rgba(0,0,0,0.6)'; g.shadowBlur = 40; g.shadowOffsetY = 12; g.fillStyle = 'rgba(10,13,16,0.93)'; rr(cx, cy, cw, ch, 34); g.fill(); g.shadowColor = 'transparent';
+  g.strokeStyle = 'rgba(255,255,255,0.14)'; g.lineWidth = 2; rr(cx, cy, cw, ch, 34); g.stroke();
+  const th = ch - 28; g.save(); rr(cx + 14, cy + 14, th, th, 24); g.clip(); g.drawImage(projThumb, cx + 14, cy + 14, th, th); g.restore();
+  const tx = cx + th + 40; g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+  g.fillStyle = ACCENT; g.font = `600 22px ${F_BODY}`; g.fillText('THE PROJECT', tx, cy + 52);
+  g.fillStyle = '#fff'; g.font = `800 42px ${F_HEAD}`; g.fillText(PROJECT.name, tx, cy + 104);
+  g.fillStyle = 'rgba(255,255,255,0.78)'; g.font = `500 28px ${F_BODY}`; g.fillText(PROJECT.sub, tx, cy + 144);
+  g.fillStyle = 'rgba(255,255,255,0.45)'; g.font = `500 19px ${F_BODY}`; g.fillText(PROJECT.tag, tx, cy + 174);
+  g.restore();
+}
+
+function headWords(b) { const words = []; let acc = false; for (const tok of b.head.split(' ')) { let w = tok; if (w.startsWith('*')) { acc = true; w = w.slice(1); } const e = w.endsWith('*'); if (e) w = w.slice(0, -1); words.push({ w, acc }); if (e) acc = false; } return words; }
+function drawHeadline(t) {
+  const i = beatAt(t), b = BEATS[i], end = BEATS[i + 1].t, lt = t - b.t, last = i === BEATS.length - 2;
+  const out = last ? 0 : ss(end - 0.32, end - 0.04, t), words = headWords(b), left = LK.layout === 'left';
+  const size = left ? 96 : 104, lh = left ? 108 : 118, maxW = left ? 900 : 940, fnt = o => `${o.acc || !LK.lightHead ? 800 : 300} ${size}px ${F_HEAD}`;
+  const lines = [[]]; let lw = 0; g.font = fnt({ acc: true }); const sp = g.measureText(' ').width * 0.9;
+  words.forEach((o, n) => { g.font = fnt(o); o.wd = g.measureText(o.w).width; const brk = LK.lightHead && o.acc && n > 0 && !words[n - 1].acc; if ((lw + o.wd > maxW || brk) && lines[lines.length - 1].length) { lines.push([]); lw = 0; } lines[lines.length - 1].push(o); lw += o.wd + sp; });
+  g.save(); g.textBaseline = 'alphabetic'; g.textAlign = 'left';
+  let n = 0, y = left ? 372 : 318;
+  for (const ln of lines) {
+    const tw = ln.reduce((s, o) => s + o.wd, 0) + sp * (ln.length - 1); let x = left ? 80 : W / 2 - tw / 2;
+    for (const o of ln) {
+      const a = outCubic((lt - 0.1 - n * 0.09) / 0.5) * (1 - out);
+      if (a > 0) { g.globalAlpha = a; g.font = fnt(o); g.shadowColor = 'rgba(0,0,0,0.6)'; g.shadowBlur = 24; g.shadowOffsetY = 4; g.fillStyle = o.acc ? ACCENT : '#fff'; g.fillText(o.w, x, y + (1 - a) * 46 - out * 20); }
+      x += o.wd + sp; n++;
+    }
+    y += lh;
+  }
+  g.shadowColor = 'transparent';
+  const ka = outCubic((lt - 0.05) / 0.5) * (1 - out);
+  if (left) {
+    if (LK.underline) { g.globalAlpha = ka; g.fillStyle = ACCENT; g.fillRect(80, y - lh + 34, 96 * ka, 7); }
+    if (!LK.lightHead) {               // kicker above the headline
+      g.globalAlpha = ka; g.font = `700 25px ${F_BODY}`; g.letterSpacing = '5px'; g.fillStyle = LK.dash ? ACCENT : 'rgba(255,255,255,0.8)';
+      if (LK.dash) { g.fillRect(80, 258, 42, 3); g.fillText(b.kick, 138, 268); } else g.fillText(b.kick, 80, 268);
+      g.letterSpacing = '0px';
+    }
+    // brand line, top left
+    g.globalAlpha = 0.95 * ss(0.2, 0.9, t); g.font = `700 22px ${F_BODY}`; g.letterSpacing = '5px';
+    g.fillStyle = '#fff'; const bt = LK.lightHead ? 'YOUR LOGO' : LK.dash ? PROJECT.name.toUpperCase() : PROJECT.dev; g.fillText(bt, 80, 150);
+    if (!LK.lightHead && !LK.dash) { const w = g.measureText(bt + ' ').width; g.fillStyle = 'rgba(255,255,255,0.5)'; g.fillText('·', 80 + w, 150); g.fillStyle = ACCENT; g.fillText(PROJECT.name.toUpperCase(), 80 + w + 22, 150); }
+    g.letterSpacing = '0px';
+  } else {
+    g.globalAlpha = 0.9 * ss(0.2, 0.9, t); g.font = `600 26px ${F_BODY}`; g.textAlign = 'center'; g.fillStyle = 'rgba(255,255,255,0.78)';
+    const kt = 'L O C A T I O N   R E E L', kw = g.measureText(kt).width; g.fillText(kt, W / 2 + 12, 196); g.fillStyle = ACCENT; g.beginPath(); g.arc(W / 2 - kw / 2 - 10, 187, 7, 0, 7); g.fill();
+  }
+  g.restore();
+}
+
+// caption word timings come from the voice track (v1_voice.js) when present
+function capWords(i) {
+  const b = BEATS[i], end = BEATS[i + 1].t, ws = b.cap.split(' ');
+  if (window.CAP_TIMES && window.CAP_TIMES[i]) return ws.map((w, k) => ({ w, t: window.CAP_TIMES[i][k] }));
+  const span = Math.min(end - b.t - 1.1, ws.length * 0.36); return ws.map((w, k) => ({ w, t: b.t + 0.45 + k * span / ws.length }));
+}
+function drawCaption(t) {
+  const i = beatAt(t), ws = capWords(i), end = BEATS[i + 1].t, last = i === BEATS.length - 2;
+  const out = last ? 0 : ss(end - 0.25, end - 0.05, t);
+  let cur = 0; ws.forEach((o, k) => { if (t >= o.t) cur = k; });
+  g.save(); g.textBaseline = 'middle'; g.textAlign = 'left';
+  if (LK.cap === 'pill') {              // full line builds up, current word in a lime pill
+    const size = 54, lh = 80, sp = 16; g.font = `700 ${size}px ${F_HEAD}`;
+    const lines = [[]]; let lw = 0;
+    for (const o of ws) { o.wd = g.measureText(o.w).width; if (lw + o.wd > 900 && lines[lines.length - 1].length) { lines.push([]); lw = 0; } lines[lines.length - 1].push(o); lw += o.wd + sp; }
+    let curLine = 0, cnt = 0; lines.forEach((ln, li) => { if (cur >= cnt && cur < cnt + ln.length) curLine = li; cnt += ln.length; });
+    const first = Math.max(0, Math.min(curLine, lines.length - 2)), show = lines.slice(first, first + 2);
+    let y = show.length === 1 ? 1372 : 1332, idx = lines.slice(0, first).reduce((s, l) => s + l.length, 0);
+    for (const ln of show) {
+      const tw = ln.reduce((s, o) => s + o.wd, 0) + sp * (ln.length - 1); let x = W / 2 - tw / 2;
+      for (const o of ln) {
+        const a = outCubic((t - o.t) / 0.18) * (1 - out);
+        if (a > 0) { g.globalAlpha = a; if (idx === cur) { g.fillStyle = ACCENT; rr(x - 12, y - 37, o.wd + 24, 74, 16); g.fill(); g.fillStyle = INK; g.shadowColor = 'transparent'; } else { g.fillStyle = '#fff'; g.shadowColor = 'rgba(0,0,0,0.75)'; g.shadowBlur = 14; g.shadowOffsetY = 3; } g.fillText(o.w, x, y + 3 + (1 - a) * 12); g.shadowColor = 'transparent'; }
+        x += o.wd + sp; idx++;
+      }
+      y += lh;
+    }
+    g.restore(); return;
+  }
+  // other looks: a short group of words at a time (up to 4, or up to a full stop)
+  const groups = [[]]; ws.forEach((o, k) => { o.k = k; const gp = groups[groups.length - 1]; gp.push(o); if ((gp.length >= 4 || /[.?!]$/.test(o.w)) && k < ws.length - 1) groups.push([]); });
+  const gp = groups.find(q => q.some(o => o.k === cur)), ga = outCubic((t - gp[0].t) / 0.2) * (1 - out);
+  if (t < ws[0].t || ga <= 0) { g.restore(); return; }
+  if (LK.cap === 'chips') {             // coral: every word in a box, current one filled
+    g.font = `800 34px ${F_BODY}`; g.letterSpacing = '1px'; const pad = 16, gap = 6, hh = 58, y = 1392;
+    gp.forEach(o => { o.tw = g.measureText(o.w.toUpperCase().replace(/[.,]/g, '')).width + pad * 2; });
+    let x = W / 2 - (gp.reduce((s, o) => s + o.tw, 0) + gap * (gp.length - 1)) / 2;
+    for (const o of gp) {
+      const on = o.k === cur, past = o.k < cur; g.globalAlpha = ga;
+      g.fillStyle = on ? ACCENT : 'rgba(26,24,24,0.82)'; rr(x, y - hh / 2, o.tw, hh, 5); g.fill();
+      g.fillStyle = on ? '#fff' : past ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.45)'; g.fillText(o.w.toUpperCase().replace(/[.,]/g, ''), x + pad, y + 2);
+      x += o.tw + gap;
+    }
+    g.letterSpacing = '0px'; g.restore(); return;
+  }
+  const spaced = LK.cap === 'spaced'; g.font = `${spaced ? 800 : 600} ${spaced ? 46 : 52}px ${F_BODY}`; const sp = spaced ? 26 : 15, y = 1500;
+  gp.forEach(o => { o.tw = g.measureText(o.w).width; });
+  let x = W / 2 - (gp.reduce((s, o) => s + o.tw, 0) + sp * (gp.length - 1)) / 2;
+  for (const o of gp) {
+    const a = spaced ? ga : outCubic((t - o.t) / 0.16) * (1 - out);
+    if (a > 0) { g.globalAlpha = a; g.shadowColor = 'rgba(0,0,0,0.8)'; g.shadowBlur = 14; g.shadowOffsetY = 3; g.fillStyle = o.k === cur ? ACCENT : '#fff'; g.fillText(o.w, x, y + (1 - a) * 10); }
+    x += o.tw + sp;
+  }
+  g.restore();
+}
+
+function voiceLevel(t) {
+  if (window.VOICE_ENV) return window.VOICE_ENV[Math.floor(t * 30)] || 0;
+  const i = beatAt(t), ws = capWords(i); return (t > ws[0].t - 0.05 && t < ws[ws.length - 1].t + 0.45) ? 0.55 + 0.45 * Math.abs(Math.sin(t * 7.3)) : 0.07;
+}
+function avatar(ax, ay, ar, fs) {
+  const gr = g.createLinearGradient(ax - ar, ay - ar, ax + ar, ay + ar); gr.addColorStop(0, '#2b3a44'); gr.addColorStop(1, '#141b21');
+  g.fillStyle = gr; g.beginPath(); g.arc(ax, ay, ar, 0, 7); g.fill();
+  g.fillStyle = '#fff'; g.font = `700 ${fs}px ${F_BODY}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(AGENT.initials, ax, ay + 2);
+  g.strokeStyle = ACCENT; g.lineWidth = 3.5; g.beginPath(); g.arc(ax, ay, ar + 4, 0, 7); g.stroke();
+}
+function wave(wx, cy, n, step, hmax, t) {
+  const lvl = voiceLevel(t), R = rng(Math.floor(t * 15) + 7);
+  for (let i = 0; i < n; i++) { const env = 0.35 + 0.65 * Math.sin((i + 0.5) / n * Math.PI), h = 6 + hmax * lvl * env * (0.35 + 0.65 * R()); g.fillStyle = ACCENT; g.globalAlpha *= 1; rr(wx + i * step, cy - h / 2, step * 0.55, h, 3); g.fill(); }
+}
+function drawAgent(t) {
+  const a = outCubic((t - 0.5) / 0.7); if (a <= 0 || LK.agent === 'none') return;
+  g.save(); g.globalAlpha = a; const glow = ss(16.8, 17.6, t);
+  if (LK.agent === 'chip') {            // night: small chip, top right
+    g.font = `700 24px ${F_BODY}`; const w1 = g.measureText(AGENT.name).width; g.font = `600 19px ${F_BODY}`; const w2 = g.measureText(AGENT.phone).width;
+    const tw = Math.max(w1, w2), ar = 34, cx = W - 80 - ar, cy = 142; g.fillStyle = 'rgba(14,16,16,0.85)'; rr(cx - ar - tw - 40, cy - ar - 10, tw + ar * 2 + 52, ar * 2 + 20, ar + 10); g.fill();
+    avatar(cx, cy, ar, 24); g.textAlign = 'right'; g.textBaseline = 'alphabetic'; g.fillStyle = '#fff'; g.font = `700 24px ${F_BODY}`; g.fillText(AGENT.name, cx - ar - 16, cy - 4); g.fillStyle = ACCENT; g.font = `600 19px ${F_BODY}`; g.fillText(AGENT.phone, cx - ar - 16, cy + 22);
+    g.restore(); return;
+  }
+  const slim = LK.agent === 'slim', bx = 60, bw = W - 120, bh = slim ? 124 : 156, by = (slim ? 1490 : 1466) + (1 - a) * 60, rad = slim ? bh / 2 : 44;
+  g.shadowColor = glow > 0 ? ACCENT + '66' : 'rgba(0,0,0,0.5)'; g.shadowBlur = 36; g.shadowOffsetY = 8;
+  g.fillStyle = slim ? 'rgba(20,18,18,0.90)' : 'rgba(13,17,21,0.92)'; rr(bx, by, bw, bh, rad); g.fill(); g.shadowColor = 'transparent';
+  g.globalAlpha = a * (glow > 0 ? 0.3 + 0.7 * glow : 1); g.strokeStyle = glow > 0 ? ACCENT : 'rgba(255,255,255,0.14)'; g.lineWidth = 2.5; rr(bx, by, bw, bh, rad); g.stroke(); g.globalAlpha = a;
+  const ar = slim ? 44 : 54, ax = bx + (slim ? 66 : 78), ay = by + bh / 2; avatar(ax, ay, ar, slim ? 30 : 38);
+  g.textAlign = 'left'; g.textBaseline = 'alphabetic'; const tx = bx + (slim ? 132 : 158);
+  if (slim) { g.fillStyle = '#fff'; g.font = `700 36px ${F_BODY}`; g.fillText(AGENT.name, tx, by + 58); g.fillStyle = ACCENT; g.font = `600 27px ${F_BODY}`; g.fillText(AGENT.phone, tx, by + 96); wave(bx + bw - 50 - 30 * 9, ay, 30, 9, 60, t); }
+  else { g.fillStyle = '#fff'; g.font = `700 38px ${F_HEAD}`; g.fillText(AGENT.name, tx, by + 62); g.fillStyle = 'rgba(255,255,255,0.6)'; g.font = `500 24px ${F_BODY}`; g.fillText(AGENT.role, tx, by + 95); g.fillStyle = ACCENT; g.font = `600 30px ${F_BODY}`; g.fillText(AGENT.phone, tx, by + 134); wave(bx + bw - 44 - 26 * 11, ay, 26, 11, 78, t); }
+  g.restore();
+}
+
+function drawChrome(t) {
+  const px = 60, pw = W - 120, py = 1648;
+  g.fillStyle = 'rgba(255,255,255,0.16)'; rr(px, py, pw, 6, 3); g.fill(); g.fillStyle = ACCENT; rr(px, py, Math.max(6, pw * clamp(t / DUR)), 6, 3); g.fill();
+  g.font = `500 21px ${F_BODY}`; g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.fillStyle = 'rgba(255,255,255,0.62)'; g.fillText('Imagery: Google Earth', px, 1692);
+  g.textAlign = 'right'; g.fillText('Drive times approximate', px + pw, 1692);
+}
+function drawWipe(t) {                  // night: black panel with a lime edge sweeps across each cut
+  if (!LK.wipe) return;
+  for (const tc of [3.3, 6.0, 12.6]) { const u = (t - (tc - 0.2)) / 0.4; if (u <= 0 || u >= 1) continue; const x0 = u < 0.5 ? 0 : W * (2 * u - 1), x1 = u < 0.5 ? W * 2 * u : W; g.fillStyle = '#050606'; g.fillRect(x0, 0, x1 - x0, H); g.fillStyle = ACCENT; g.fillRect((u < 0.5 ? x1 : x0) - 3, 0, 6, H); }
+}
+
+window.renderTick = k => {
+  const t = k / FPS; CAM = camAt(t);
+  g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1; g.filter = 'none'; g.shadowColor = 'transparent'; g.shadowBlur = 0; g.shadowOffsetY = 0; g.letterSpacing = '0px';
+  drawMap(); drawRoutes(t); drawDot(t); drawCard(t); drawWipe(t);
+  drawHeadline(t); drawCaption(t); drawAgent(t); drawChrome(t);
+  const f = 1 - ss(0, 0.5, t); if (f > 0) { g.fillStyle = `rgba(${LK.bg},${f})`; g.fillRect(0, 0, W, H); }
+};
+window.beatTimes = BEATS.map(b => b.t); window.routeTimes = LANDMARKS.map(l => l.t0);
+window.FILM = { FPS, DUR, BEATS, LANDMARKS, looks: Object.keys(LOOKS) };
+window.ready.then(() => { const t0 = performance.now(); const loop = () => { renderTick(Math.floor(((performance.now() - t0) / 1000 % DUR) * FPS)); requestAnimationFrame(loop); }; requestAnimationFrame(loop); });
+</script></body></html>
