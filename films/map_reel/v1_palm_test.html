@@ -1,7 +1,7 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Map location reel — v1 palm test</title>
 <style>html,body{margin:0;background:#07090c}canvas{display:block;height:100vh;margin:0 auto}</style>
-<script src="assets.js"></script>
+<script src="assets.js"></script><script src="v1_voice.js"></script>
 </head><body><canvas id="cv" width="1080" height="1920"></canvas>
 <script>
 /* ============ DATA: change the film here ============ */
@@ -18,7 +18,7 @@ const LANDMARKS = [
 ];
 // beats: start, headline (accent word in *stars*), caption, camera target at beat START [x m east, y m south, metres per pixel]
 const BEATS = [
-  { t: 0.0,  head: 'All eyes are on *the Palm.*',      cap: "Dubai's most famous address.",            cam: [ 2600,  1200, 13.0] },
+  { t: 0.0,  head: 'All eyes are on *the Palm.*',      cap: "Dubai's most famous address.",            cam: [  900,  -200, 12.6] },
   { t: 3.3,  head: 'Right at the *heart* of it.',      cap: 'Your new home sits right here.',          cam: [ 1500,   300, 11.5] },
   { t: 6.0,  head: 'Minutes from *everything.*',       cap: 'Atlantis. The Marina. Burj Al Arab. All a short drive away.', cam: [1100, -300, 10.0] },
   { t: 12.6, head: 'Meet *Sample Residence.*',         cap: 'Beachfront living on the trunk of the Palm.', cam: [1000, -250, 9.4] },
