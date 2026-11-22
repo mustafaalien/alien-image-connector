@@ -1,0 +1,313 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Map location reel — v1 palm test</title>
+<style>html,body{margin:0;background:#07090c}canvas{display:block;height:100vh;margin:0 auto}</style>
+<script src="assets.js"></script>
+</head><body><canvas id="cv" width="1080" height="1920"></canvas>
+<script>
+/* ============ DATA: change the film here ============ */
+const FPS = 30, DUR = 20, W = 1080, H = 1920;
+const ACCENT = '#C8FF3E', INK = '#0A0D10';
+const FOCUS_Y = 900;                       // where the camera target sits on screen
+const PROJECT = { name: 'Sample Residence', sub: 'Palm Jumeirah · Dubai', tag: 'Satellite view · sample project', x: 0, y: 0 };
+const AGENT = { name: 'Agent Name', role: 'Property Consultant', phone: '+971 50 000 0000', initials: 'AN' };
+// landmarks: key matches routes in assets.js (real road geometry + drive time)
+const LANDMARKS = [
+  { key: 'Atlantis The Palm', label: 'Atlantis The Palm', t0: 6.3, side: 'r' },
+  { key: 'Dubai Marina Mall', label: 'Dubai Marina', t0: 8.3, side: 'r', dy: -70 },
+  { key: 'Burj Al Arab', label: 'Burj Al Arab', t0: 10.3, side: 'l' },
+];
+// beats: start, headline (accent word in *stars*), caption, camera target at beat START [x m east, y m south, metres per pixel]
+const BEATS = [
+  { t: 0.0,  head: 'All eyes are on *the Palm.*',      cap: "Dubai's most famous address.",            cam: [ 2600,  1200, 13.0] },
+  { t: 3.3,  head: 'Right at the *heart* of it.',      cap: 'Your new home sits right here.',          cam: [ 1500,   300, 11.5] },
+  { t: 6.0,  head: 'Minutes from *everything.*',       cap: 'Atlantis. The Marina. Burj Al Arab. All a short drive away.', cam: [1100, -300, 10.0] },
+  { t: 12.6, head: 'Meet *Sample Residence.*',         cap: 'Beachfront living on the trunk of the Palm.', cam: [1000, -250, 9.4] },
+  { t: 16.6, head: 'Your key to *the Palm.*',          cap: 'Call today for a private viewing.',       cam: [   0,   60, 1.25] },
+  { t: 20.0, cam: [0, 40, 1.05] },
+];
+/* ==================================================== */
+
+const cv = document.getElementById('cv'), g = cv.getContext('2d');
+const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+const smooth = x => { x = clamp(x); return x * x * x * (x * (x * 6 - 15) + 10); };
+const ss = (a, b, x) => smooth((x - a) / (b - a));
+const outBack = x => { x = clamp(x); const c = 1.5; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); };
+const outCubic = x => 1 - Math.pow(1 - clamp(x), 3);
+const lerp = (a, b, t) => a + (b - a) * t;
+function rng(seed) { let s = seed >>> 0; return () => { s = (s + 0x6D2B79F5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+
+const A = window.ASSETS;                  // levels [{src,mpp,cx,cy,w,h}], routes {name:{min,km,pts:[[x,y],..]}}
+const levels = [], thumbs = {};
+let projThumb = null;
+const F_HEAD = '"Sora"', F_BODY = '"Inter"';
+
+window.ready = (async () => {
+  const ff = [];
+  for (const [fam, wt, src] of A.fonts) { const f = new FontFace(fam, `url(${src})`, { weight: wt }); ff.push(f.load().then(x => document.fonts.add(x))); }
+  await Promise.all(ff);
+  for (const L of A.levels) {
+    const im = new Image(); im.src = L.src; await im.decode();
+    levels.push({ ...L, im });
+  }
+  for (const k in A.routes) {              // cumulative length for progressive drawing
+    const r = A.routes[k]; r.cum = [0];
+    for (let i = 1; i < r.pts.length; i++) r.cum.push(r.cum[i - 1] + Math.hypot(r.pts[i][0] - r.pts[i - 1][0], r.pts[i][1] - r.pts[i - 1][1]));
+    r.end = r.pts[r.pts.length - 1];
+    thumbs[k] = cropWorld(r.end[0], r.end[1], 520, 160);
+  }
+  projThumb = cropWorld(PROJECT.x, PROJECT.y, 330, 300);
+  window.renderTick(0);
+  return true;
+})();
+
+// crop a square of the REAL satellite image around a world point (metres), from the finest level that contains it
+function cropWorld(x, y, sizeM, px) {
+  const c = document.createElement('canvas'); c.width = c.height = px; const q = c.getContext('2d');
+  let best = levels[0];
+  for (const L of levels) { const hx = sizeM / 2 / L.mpp, ux = L.cx + x / L.mpp, uy = L.cy + y / L.mpp; if (ux - hx >= 0 && uy - hx >= 0 && ux + hx <= L.w && uy + hx <= L.h) best = L; }
+  const s = sizeM / best.mpp; q.imageSmoothingQuality = 'high';
+  q.drawImage(best.im, best.cx + x / best.mpp - s / 2, best.cy + y / best.mpp - s / 2, s, s, 0, 0, px, px);
+  return c;
+}
+
+function camAt(t) {
+  let i = 0; while (i < BEATS.length - 2 && t >= BEATS[i + 1].t) i++;
+  const a = BEATS[i], b = BEATS[i + 1]; const u = (t - a.t) / (b.t - a.t);
+  // most beats drift gently; the push into the project uses a strong ease
+  const e = (i === 3) ? smooth(u) : (0.35 * u + 0.65 * smooth(u));
+  return { x: lerp(a.cam[0], b.cam[0], e), y: lerp(a.cam[1], b.cam[1], e), mpp: Math.exp(lerp(Math.log(a.cam[2]), Math.log(b.cam[2]), e)) };
+}
+let CAM = { x: 0, y: 0, mpp: 10 };
+const sx = x => W / 2 + (x - CAM.x) / CAM.mpp, sy = y => FOCUS_Y + (y - CAM.y) / CAM.mpp;
+
+function drawMap() {
+  g.fillStyle = '#0b1a22'; g.fillRect(0, 0, W, H);
+  g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+  const draws = [];
+  for (let i = 0; i < levels.length; i++) {
+    const L = levels[i], k = L.mpp / CAM.mpp;
+    const x0 = sx(-L.cx * L.mpp), y0 = sy(-L.cy * L.mpp), w = L.w * k, h = L.h * k;
+    const margin = Math.min(-x0, -y0, x0 + w - W, y0 + h - H);     // >0 when the level covers the whole frame
+    const a = i === 0 ? 1 : ss(0, 140, margin);
+    if (k < 0.3) break;                                           // far finer than needed
+    if (a > 0) draws.push([L, x0, y0, w, h, a]);
+  }
+  let start = 0; for (let i = 0; i < draws.length; i++) if (draws[i][5] >= 1) start = i;
+  for (let i = start; i < draws.length; i++) { const [L, x0, y0, w, h, a] = draws[i]; g.globalAlpha = a; g.drawImage(L.im, x0, y0, w, h); }
+  g.globalAlpha = 1;
+  // grade: darker, a little cooler, so the type and the lime read
+  g.fillStyle = 'rgba(5,10,16,0.10)'; g.fillRect(0, 0, W, H);
+  let gr = g.createLinearGradient(0, 0, 0, 760); gr.addColorStop(0, 'rgba(4,7,10,0.90)'); gr.addColorStop(0.5, 'rgba(4,7,10,0.50)'); gr.addColorStop(1, 'rgba(4,7,10,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, W, 760);
+  gr = g.createLinearGradient(0, 1120, 0, H); gr.addColorStop(0, 'rgba(4,7,10,0)'); gr.addColorStop(0.45, 'rgba(4,7,10,0.70)'); gr.addColorStop(1, 'rgba(4,7,10,0.97)');
+  g.fillStyle = gr; g.fillRect(0, 1120, W, H - 1120);
+}
+
+function rr(x, y, w, h, r) { g.beginPath(); g.roundRect(x, y, w, h, r); }
+
+function drawRoutes(t) {
+  for (const lm of LANDMARKS) {
+    const r = A.routes[lm.key]; const p = outCubic((t - lm.t0) / 1.5);
+    const fade = 1 - ss(12.3, 13.0, t);
+    if (p <= 0 || fade <= 0) continue;
+    const upto = p * r.cum[r.cum.length - 1];
+    g.save(); g.globalAlpha = fade; g.lineJoin = g.lineCap = 'round';
+    g.beginPath(); let hx = sx(r.pts[0][0]), hy = sy(r.pts[0][1]); g.moveTo(hx, hy);
+    for (let i = 1; i < r.pts.length; i++) {
+      if (r.cum[i] <= upto) { hx = sx(r.pts[i][0]); hy = sy(r.pts[i][1]); g.lineTo(hx, hy); }
+      else { const u = (upto - r.cum[i - 1]) / (r.cum[i] - r.cum[i - 1]); hx = sx(lerp(r.pts[i - 1][0], r.pts[i][0], u)); hy = sy(lerp(r.pts[i - 1][1], r.pts[i][1], u)); g.lineTo(hx, hy); break; }
+    }
+    g.strokeStyle = 'rgba(8,12,6,0.55)'; g.lineWidth = 13; g.stroke();
+    g.shadowColor = ACCENT; g.shadowBlur = 18; g.strokeStyle = ACCENT; g.lineWidth = 6.5; g.stroke(); g.shadowBlur = 0;
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(hx, hy, 9, 0, 7); g.fill();          // travelling head
+    g.restore();
+    // pill at the landmark
+    const q = outBack((t - lm.t0 - 1.15) / 0.5);
+    if (q > 0) {
+      const ex = sx(r.end[0]), ey = sy(r.end[1]);
+      g.save(); g.globalAlpha = fade * clamp(q * 1.4);
+      g.fillStyle = ACCENT; g.beginPath(); g.arc(ex, ey, 13, 0, 7); g.fill(); g.strokeStyle = INK; g.lineWidth = 4; g.stroke();
+      const mins = Math.round(r.min) + ' min', th = 84;
+      g.font = `700 34px ${F_HEAD}`; const w1 = g.measureText(mins).width;
+      g.font = `500 30px ${F_BODY}`; const w2 = g.measureText(lm.label).width;
+      const pw = th + 18 + w1 + 22 + w2 + 34, ph = th + 12;
+      let px = lm.side === 'r' ? ex + 26 : ex - 26 - pw; px = clamp(px, 30, W - 30 - pw); const py = ey - ph / 2 - 62 + (lm.dy || 0);
+      g.translate(px + pw / 2, py + ph / 2); g.scale(lerp(0.8, 1, q), lerp(0.8, 1, q)); g.translate(-pw / 2, -ph / 2);
+      g.shadowColor = 'rgba(0,0,0,0.55)'; g.shadowBlur = 26; g.shadowOffsetY = 8;
+      g.fillStyle = 'rgba(10,13,16,0.90)'; rr(0, 0, pw, ph, ph / 2); g.fill(); g.shadowColor = 'transparent';
+      g.strokeStyle = 'rgba(255,255,255,0.14)'; g.lineWidth = 2; rr(0, 0, pw, ph, ph / 2); g.stroke();
+      g.save(); g.beginPath(); g.arc(6 + th / 2, ph / 2, th / 2, 0, 7); g.clip(); g.drawImage(thumbs[lm.key], 6, 6, th, th); g.restore();
+      g.strokeStyle = ACCENT; g.lineWidth = 3; g.beginPath(); g.arc(6 + th / 2, ph / 2, th / 2, 0, 7); g.stroke();
+      g.textBaseline = 'middle'; g.textAlign = 'left';
+      g.fillStyle = ACCENT; g.font = `700 34px ${F_HEAD}`; g.fillText(mins, th + 22, ph / 2 + 2);
+      g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillRect(th + 22 + w1 + 10, ph / 2 - 14, 2, 28);
+      g.fillStyle = '#fff'; g.font = `500 30px ${F_BODY}`; g.fillText(lm.label, th + 22 + w1 + 22, ph / 2 + 2);
+      g.restore();
+    }
+  }
+}
+
+function drawDot(t) {
+  const a = outBack((t - 3.6) / 0.6); if (a <= 0) return;
+  const x = sx(PROJECT.x), y = sy(PROJECT.y);
+  g.save();
+  for (let i = 0; i < 3; i++) { const ph = ((t * 0.8 + i / 3) % 1); g.globalAlpha = (1 - ph) * 0.55 * clamp(a); g.strokeStyle = ACCENT; g.lineWidth = 4; g.beginPath(); g.arc(x, y, 20 + ph * 95, 0, 7); g.stroke(); }
+  g.globalAlpha = clamp(a);
+  g.fillStyle = 'rgba(200,255,62,0.25)'; g.beginPath(); g.arc(x, y, 34 * a, 0, 7); g.fill();
+  g.shadowColor = ACCENT; g.shadowBlur = 30; g.fillStyle = ACCENT; g.beginPath(); g.arc(x, y, 17 * a, 0, 7); g.fill(); g.shadowBlur = 0;
+  g.strokeStyle = INK; g.lineWidth = 4; g.stroke();
+  // small name tag before the full card arrives
+  const tg = ss(4.1, 4.6, t) * (1 - ss(12.4, 13.0, t));
+  if (tg > 0) {
+    g.globalAlpha = tg; g.font = `700 30px ${F_HEAD}`; const w = g.measureText(PROJECT.name).width + 44;
+    g.fillStyle = ACCENT; rr(x - w / 2, y + 44 + (1 - tg) * 14, w, 54, 27); g.fill();
+    g.fillStyle = INK; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(PROJECT.name, x, y + 72 + (1 - tg) * 14);
+  }
+  g.restore();
+}
+
+function drawCard(t) {
+  const a = outBack((t - 15.4) / 0.7); if (a <= 0) return;
+  const x = sx(PROJECT.x), y = sy(PROJECT.y), cw = 620, ch = 196, cx = W / 2 - cw / 2, cy = y + 150;
+  g.save(); g.globalAlpha = clamp(a * 1.3);
+  g.strokeStyle = ACCENT; g.lineWidth = 3; g.beginPath(); g.moveTo(x, y + 20); g.lineTo(x, cy); g.stroke();
+  g.translate(W / 2, cy + ch / 2); g.scale(lerp(0.85, 1, a), lerp(0.85, 1, a)); g.translate(-W / 2, -(cy + ch / 2));
+  g.shadowColor = 'rgba(0,0,0,0.6)'; g.shadowBlur = 40; g.shadowOffsetY = 12;
+  g.fillStyle = 'rgba(10,13,16,0.93)'; rr(cx, cy, cw, ch, 34); g.fill(); g.shadowColor = 'transparent';
+  g.strokeStyle = 'rgba(255,255,255,0.14)'; g.lineWidth = 2; rr(cx, cy, cw, ch, 34); g.stroke();
+  const th = ch - 28; g.save(); rr(cx + 14, cy + 14, th, th, 24); g.clip(); g.drawImage(projThumb, cx + 14, cy + 14, th, th); g.restore();
+  const tx = cx + th + 40; g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+  g.fillStyle = ACCENT; g.font = `600 22px ${F_BODY}`; g.fillText('THE PROJECT', tx, cy + 52);
+  g.fillStyle = '#fff'; g.font = `800 42px ${F_HEAD}`; g.fillText(PROJECT.name, tx, cy + 104);
+  g.fillStyle = 'rgba(255,255,255,0.78)'; g.font = `500 28px ${F_BODY}`; g.fillText(PROJECT.sub, tx, cy + 144);
+  g.fillStyle = 'rgba(255,255,255,0.45)'; g.font = `500 19px ${F_BODY}`; g.fillText(PROJECT.tag, tx, cy + 174);
+  g.restore();
+}
+
+function beatAt(t) { let i = 0; while (i < BEATS.length - 2 && t >= BEATS[i + 1].t) i++; return i; }
+
+function drawHeadline(t) {
+  const i = beatAt(t), b = BEATS[i], end = BEATS[i + 1].t, lt = t - b.t;
+  const out = i === BEATS.length - 2 ? 0 : ss(end - 0.32, end - 0.04, t);
+  // split into words, accent ones marked
+  const words = []; let acc = false;
+  for (const tok of b.head.split(' ')) { let w = tok; if (w.startsWith('*')) { acc = true; w = w.slice(1); } const e = w.endsWith('*'); if (e) w = w.slice(0, -1); words.push({ w, acc }); if (e) acc = false; }
+  const size = 104, lh = 118; g.font = `800 ${size}px ${F_HEAD}`; const sp = g.measureText(' ').width * 0.9;
+  const lines = [[]]; let lw = 0;
+  for (const o of words) { o.wd = g.measureText(o.w).width; if (lw + o.wd > 940 && lines[lines.length - 1].length) { lines.push([]); lw = 0; } lines[lines.length - 1].push(o); lw += o.wd + sp; }
+  g.save(); g.textBaseline = 'alphabetic'; g.textAlign = 'left';
+  let n = 0, y = 318;
+  for (const ln of lines) {
+    const tw = ln.reduce((s, o) => s + o.wd, 0) + sp * (ln.length - 1); let x = W / 2 - tw / 2;
+    for (const o of ln) {
+      const a = outCubic((lt - 0.1 - n * 0.09) / 0.5) * (1 - out);
+      if (a > 0) { g.globalAlpha = a; g.shadowColor = 'rgba(0,0,0,0.6)'; g.shadowBlur = 24; g.shadowOffsetY = 4; g.fillStyle = o.acc ? ACCENT : '#fff'; g.fillText(o.w, x, y + (1 - a) * 46 - out * 20); }
+      x += o.wd + sp; n++;
+    }
+    y += lh;
+  }
+  g.restore();
+  // small kicker above the headline
+  g.save(); g.globalAlpha = 0.9 * ss(0.2, 0.9, t); g.font = `600 26px ${F_BODY}`; g.textAlign = 'center'; g.fillStyle = 'rgba(255,255,255,0.78)';
+  const kt = 'L O C A T I O N   R E E L'; const kw = g.measureText(kt).width;
+  g.fillText(kt, W / 2 + 12, 196); g.fillStyle = ACCENT; g.beginPath(); g.arc(W / 2 - kw / 2 - 10, 187, 7, 0, 7); g.fill(); g.restore();
+}
+
+// caption word timings: replaced by the voice-over word times when a voice track exists
+function capWords(i) {
+  const b = BEATS[i], end = BEATS[i + 1].t; const ws = b.cap.split(' ');
+  if (window.CAP_TIMES && window.CAP_TIMES[i]) return ws.map((w, k) => ({ w, t: window.CAP_TIMES[i][k] }));
+  const span = Math.min(end - b.t - 1.1, ws.length * 0.36); return ws.map((w, k) => ({ w, t: b.t + 0.45 + k * span / ws.length }));
+}
+function drawCaption(t) {
+  const i = beatAt(t), ws = capWords(i), end = BEATS[i + 1].t;
+  const out = i === BEATS.length - 2 ? 0 : ss(end - 0.25, end - 0.05, t);
+  const size = 54, lh = 80; g.save(); g.font = `700 ${size}px ${F_HEAD}`; const sp = 16;
+  const lines = [[]]; let lw = 0;
+  for (const o of ws) { o.wd = g.measureText(o.w).width; if (lw + o.wd > 900 && lines[lines.length - 1].length) { lines.push([]); lw = 0; } lines[lines.length - 1].push(o); lw += o.wd + sp; }
+  // show at most two lines: the line holding the current word and the one after/before it
+  let cur = 0; ws.forEach((o, k) => { if (t >= o.t) cur = k; });
+  let curLine = 0, cnt = 0; lines.forEach((ln, li) => { if (cur >= cnt && cur < cnt + ln.length) curLine = li; cnt += ln.length; });
+  const first = Math.max(0, Math.min(curLine, lines.length - 2)); const show = lines.slice(first, first + 2);
+  let y = show.length === 1 ? 1372 : 1332; g.textBaseline = 'middle'; g.textAlign = 'left';
+  let idx = lines.slice(0, first).reduce((s, l) => s + l.length, 0);
+  for (const ln of show) {
+    const tw = ln.reduce((s, o) => s + o.wd, 0) + sp * (ln.length - 1); let x = W / 2 - tw / 2;
+    for (const o of ln) {
+      const a = outCubic((t - o.t) / 0.18) * (1 - out);
+      if (a > 0) {
+        g.globalAlpha = a;
+        if (idx === cur) { g.fillStyle = ACCENT; rr(x - 12, y - 37, o.wd + 24, 74, 16); g.fill(); g.fillStyle = INK; g.shadowColor = 'transparent'; }
+        else { g.fillStyle = '#fff'; g.shadowColor = 'rgba(0,0,0,0.75)'; g.shadowBlur = 14; g.shadowOffsetY = 3; }
+        g.fillText(o.w, x, y + 3 + (1 - a) * 12); g.shadowColor = 'transparent';
+      }
+      x += o.wd + sp; idx++;
+    }
+    y += lh;
+  }
+  g.restore();
+}
+
+// voice level 0..1 for the waveform; replaced by the real voice envelope when a voice track exists
+function voiceLevel(t) {
+  if (window.VOICE_ENV) { const k = Math.floor(t * 30); return window.VOICE_ENV[k] || 0; }
+  const i = beatAt(t), ws = capWords(i); const last = ws[ws.length - 1].t + 0.45;
+  return (t > ws[0].t - 0.05 && t < last) ? 0.55 + 0.45 * Math.abs(Math.sin(t * 7.3)) : 0.07;
+}
+function drawAgent(t) {
+  const a = outCubic((t - 0.5) / 0.7); if (a <= 0) return;
+  const bx = 60, bw = W - 120, bh = 156, by = 1466 + (1 - a) * 60;
+  g.save(); g.globalAlpha = a;
+  const glow = ss(16.8, 17.6, t);
+  g.shadowColor = glow > 0 ? `rgba(200,255,62,${0.35 * glow})` : 'rgba(0,0,0,0.5)'; g.shadowBlur = 36; g.shadowOffsetY = 8;
+  g.fillStyle = 'rgba(13,17,21,0.92)'; rr(bx, by, bw, bh, 44); g.fill(); g.shadowColor = 'transparent';
+  g.strokeStyle = glow > 0 ? `rgba(200,255,62,${0.25 + 0.6 * glow})` : 'rgba(255,255,255,0.14)'; g.lineWidth = 2.5; rr(bx, by, bw, bh, 44); g.stroke();
+  // photo (placeholder initials until a real photo is given)
+  const ax = bx + 78, ay = by + bh / 2, ar = 54;
+  const gr = g.createLinearGradient(ax - ar, ay - ar, ax + ar, ay + ar); gr.addColorStop(0, '#2b3a44'); gr.addColorStop(1, '#141b21');
+  g.fillStyle = gr; g.beginPath(); g.arc(ax, ay, ar, 0, 7); g.fill();
+  if (A.agentPhoto && window.agentImg) { g.save(); g.beginPath(); g.arc(ax, ay, ar, 0, 7); g.clip(); g.drawImage(window.agentImg, ax - ar, ay - ar, ar * 2, ar * 2); g.restore(); }
+  else { g.fillStyle = '#fff'; g.font = `700 38px ${F_HEAD}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(AGENT.initials, ax, ay + 2); }
+  g.strokeStyle = ACCENT; g.lineWidth = 4; g.beginPath(); g.arc(ax, ay, ar + 5, 0, 7); g.stroke();
+  g.fillStyle = ACCENT; g.beginPath(); g.arc(ax + 40, ay + 40, 11, 0, 7); g.fill(); g.strokeStyle = '#0d1115'; g.lineWidth = 4; g.stroke();
+  g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+  g.fillStyle = '#fff'; g.font = `700 38px ${F_HEAD}`; g.fillText(AGENT.name, bx + 158, by + 62);
+  g.fillStyle = 'rgba(255,255,255,0.6)'; g.font = `500 24px ${F_BODY}`; g.fillText(AGENT.role, bx + 158, by + 95);
+  g.fillStyle = ACCENT; g.font = `600 30px ${F_BODY}`; g.fillText(AGENT.phone, bx + 158, by + 134);
+  // waveform
+  const n = 26, wx = bx + bw - 44 - n * 11, lvl = voiceLevel(t), R = rng(Math.floor(t * 15) + 7);
+  for (let i = 0; i < n; i++) {
+    const env = 0.35 + 0.65 * Math.sin((i + 0.5) / n * Math.PI);
+    const h = 8 + 78 * lvl * env * (0.35 + 0.65 * R());
+    g.fillStyle = i / n < ((t * 0.9) % 1.3) ? ACCENT : 'rgba(200,255,62,0.55)';
+    rr(wx + i * 11, by + bh / 2 - h / 2, 6, h, 3); g.fill();
+  }
+  g.restore();
+}
+
+function drawChrome(t) {
+  // progress bar
+  const px = 60, pw = W - 120, py = 1648;
+  g.fillStyle = 'rgba(255,255,255,0.16)'; rr(px, py, pw, 6, 3); g.fill();
+  g.fillStyle = ACCENT; rr(px, py, Math.max(6, pw * clamp(t / DUR)), 6, 3); g.fill();
+  // imagery credit
+  g.font = `500 21px ${F_BODY}`; g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.fillStyle = 'rgba(255,255,255,0.62)';
+  g.fillText('Imagery: Google Earth', px, 1692);
+  g.textAlign = 'right'; g.fillText('Drive times approximate', px + pw, 1692);
+}
+
+window.renderTick = k => {
+  const t = k / FPS;
+  CAM = camAt(t);
+  g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1; g.shadowColor = 'transparent'; g.shadowBlur = 0; g.shadowOffsetY = 0;
+  drawMap(); drawRoutes(t); drawDot(t); drawCard(t);
+  drawHeadline(t); drawCaption(t); drawAgent(t); drawChrome(t);
+  // fade from black at the start
+  const f = 1 - ss(0, 0.5, t); if (f > 0) { g.fillStyle = `rgba(4,7,10,${f})`; g.fillRect(0, 0, W, H); }
+};
+window.beatTimes = BEATS.map(b => b.t);
+window.routeTimes = LANDMARKS.map(l => l.t0);
+window.FILM = { FPS, DUR, BEATS, LANDMARKS };
+// live preview when opened in a browser
+window.ready.then(() => { const t0 = performance.now(); const loop = () => { renderTick(Math.floor(((performance.now() - t0) / 1000 % DUR) * FPS)); requestAnimationFrame(loop); }; requestAnimationFrame(loop); });
+</script></body></html>
